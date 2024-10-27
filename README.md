@@ -1,182 +1,145 @@
-# DirectX 11 Overlay with Python
+# C# DirectX 11 Overlay Tutorial
 
-A guide for creating a DirectX 11 overlay using C++ and interfacing it with Python through a DLL.
-
-## Table of Contents
-- [Prerequisites](#prerequisites)
-- [Development Environment Setup](#development-environment-setup)
-- [Project Setup](#project-setup)
-- [Implementation](#implementation)
-  - [DirectX 11 Setup](#directx-11-setup)
-  - [DLL Export Functions](#dll-export-functions)
-  - [Python Integration](#python-integration)
-- [Testing](#testing)
-- [Troubleshooting](#troubleshooting)
+This guide walks through building a DirectX 11 overlay DLL in C# for creating graphical overlays. We'll use **SharpDX** (DirectX C# wrapper) and configure a transparent Windows Form for display.
 
 ## Prerequisites
-- Visual Studio (Community Edition or higher)
-- Windows SDK
-- Python 3.x
-- Basic knowledge of C++ and Python
 
-## Development Environment Setup
+1. **Visual Studio** (for creating a C# Class Library)
+2. **SharpDX NuGet packages** (DirectX API access in C#)
+3. **Python** (if you plan to call the DLL from Python)
 
-### Installing Visual Studio
-1. Download Visual Studio Community from the [Visual Studio Downloads page](https://visualstudio.microsoft.com/downloads/)
-2. During installation, select "Desktop Development with C++" workload
-3. In the Individual Components section, ensure "Windows 10/11 SDK" is selected
+## Setup Guide
 
-## Project Setup
+### Step 1: Create a New Class Library Project
 
-### Creating the DLL Project
-1. Open Visual Studio
-2. Go to `File > New > Project`
-3. Select "Dynamic Link Library (DLL)" under C++ projects
-4. Name your project (e.g., `DirectXOverlay`)
-5. Click Create
+1. Open **Visual Studio**
+2. Create a new **Class Library** project
+   - Select `.NET Framework` for broader compatibility
+   - Name it something like `OverlayLibrary`
 
-### Configuring DirectX 11
-1. Right-click project in Solution Explorer → Properties
-2. Navigate to C/C++ → General
-3. Add to Additional Include Directories:
-   ```
-   $(WindowsSDK_IncludePath)
-   ```
-4. Navigate to Linker → Input
-5. Add to Additional Dependencies:
-   ```
-   d3d11.lib
-   dxgi.lib
-   ```
+### Step 2: Install SharpDX Packages
 
-## Implementation
+To use DirectX in C#, install the following **SharpDX** packages:
 
-### DirectX 11 Setup
+1. Open the **Package Manager Console** in Visual Studio (`Tools` > `NuGet Package Manager` > `Package Manager Console`)
+2. Run these commands:
 
-First, include the necessary headers in your main `.cpp` file:
-
-```cpp
-#include <Windows.h>
-#include <d3d11.h>
+```powershell
+Install-Package SharpDX
+Install-Package SharpDX.Direct3D11
+Install-Package SharpDX.Mathematics
 ```
 
-Declare global DirectX variables:
+### Step 3: Create an Overlay Window
 
-```cpp
-IDXGISwapChain* swapChain = nullptr;
-ID3D11Device* device = nullptr;
-ID3D11DeviceContext* context = nullptr;
-ID3D11RenderTargetView* renderTargetView = nullptr;
+Now we'll set up a transparent window as the overlay:
+
+1. Right-click the project, select Add > Windows Form, and name it `OverlayForm`
+2. Open OverlayForm.cs and set the following properties in the constructor:
+
+```csharp
+public OverlayForm()
+{
+    this.FormBorderStyle = FormBorderStyle.None;   // No border
+    this.TopMost = true;                           // Always on top
+    this.Opacity = 0.75;                           // Semi-transparent
+    this.BackColor = Color.Black;                  // Background color
+    this.TransparencyKey = Color.Black;            // Make background transparent
+}
 ```
 
-### DLL Export Functions
+### Step 4: Initialize DirectX 11 in C#
 
-#### Initialize Overlay
-```cpp
-extern "C" __declspec(dllexport) bool initialize_overlay(HWND hwnd) {
-    DXGI_SWAP_CHAIN_DESC scd = {};
-    scd.BufferCount = 1;
-    scd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    scd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-    scd.OutputWindow = hwnd;
-    scd.SampleDesc.Count = 1;
-    scd.Windowed = TRUE;
+Add DirectX initialization code to render content to the overlay:
 
-    HRESULT hr = D3D11CreateDeviceAndSwapChain(
-        nullptr, 
-        D3D_DRIVER_TYPE_HARDWARE, 
-        nullptr, 
-        0,
-        nullptr, 
-        0, 
-        D3D11_SDK_VERSION, 
-        &scd, 
-        &swapChain, 
-        &device, 
-        nullptr, 
-        &context
-    );
+1. In your class library, create a new class named `OverlayRenderer`
+2. Set up Device, SwapChain, and RenderTargetView using SharpDX:
 
-    if (FAILED(hr)) {
-        return false;
+```csharp
+using SharpDX;
+using SharpDX.Direct3D11;
+using SharpDX.DXGI;
+using SharpDX.Mathematics.Interop;
+
+public class OverlayRenderer
+{
+    private Device device;
+    private SwapChain swapChain;
+    private RenderTargetView renderTargetView;
+
+    public void Initialize(IntPtr windowHandle)
+    {
+        var swapChainDesc = new SwapChainDescription
+        {
+            BufferCount = 1,
+            ModeDescription = new ModeDescription(800, 600, new Rational(60, 1), Format.R8G8B8A8_UNorm),
+            IsWindowed = true,
+            OutputHandle = windowHandle,
+            SampleDescription = new SampleDescription(1, 0),
+            SwapEffect = SwapEffect.Discard,
+            Usage = Usage.RenderTargetOutput
+        };
+
+        Device.CreateWithSwapChain(DriverType.Hardware, DeviceCreationFlags.None, swapChainDesc, out device, out swapChain);
+
+        // Set up render target view
+        var backBuffer = swapChain.GetBackBuffer<Texture2D>(0);
+        renderTargetView = new RenderTargetView(device, backBuffer);
     }
 
-    ID3D11Texture2D* backBuffer = nullptr;
-    swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&backBuffer);
-    device->CreateRenderTargetView(backBuffer, nullptr, &renderTargetView);
-    backBuffer->Release();
-
-    return true;
+    public void Render()
+    {
+        device.ImmediateContext.ClearRenderTargetView(renderTargetView, new RawColor4(0, 0, 0, 0));
+        swapChain.Present(1, PresentFlags.None);
+    }
 }
 ```
 
-#### Render Frame
-```cpp
-extern "C" __declspec(dllexport) void render_frame(float r, float g, float b, float a) {
-    const float color[4] = { r, g, b, a };
-    context->ClearRenderTargetView(renderTargetView, color);
-    swapChain->Present(1, 0);
+> Note: The Render method clears the screen with transparency.
+
+### Step 5: Add a Render Loop in OverlayForm
+
+In OverlayForm.cs, add the following to start rendering:
+
+```csharp
+private OverlayRenderer renderer;
+
+protected override void OnLoad(EventArgs e)
+{
+    base.OnLoad(e);
+    renderer = new OverlayRenderer();
+    renderer.Initialize(this.Handle);
+    RenderLoop();
+}
+
+private async void RenderLoop()
+{
+    while (true)
+    {
+        renderer.Render();
+        await Task.Delay(16);  // Approximately 60 FPS
+    }
 }
 ```
 
-#### Shutdown Overlay
-```cpp
-extern "C" __declspec(dllexport) void shutdown_overlay() {
-    if (renderTargetView) renderTargetView->Release();
-    if (swapChain) swapChain->Release();
-    if (context) context->Release();
-    if (device) device->Release();
-}
+### Step 6: Access DLL from Python (Optional)
+
+1. Install pythonnet in Python:
+
+```bash
+pip install pythonnet
 ```
 
-### Python Integration
+2. In your Python script, load and use the DLL:
 
 ```python
-import ctypes
-import time
+import clr
+clr.AddReference("PathToYourOverlayLibrary.dll")
+from YourNamespace import OverlayRenderer
 
-# Load the DLL
-dx_overlay = ctypes.CDLL('./DirectXOverlay.dll')
-
-# Define function arguments and return types
-dx_overlay.initialize_overlay.argtypes = [ctypes.c_void_p]
-dx_overlay.initialize_overlay.restype = ctypes.c_bool
-dx_overlay.render_frame.argtypes = [ctypes.c_float, ctypes.c_float, ctypes.c_float, ctypes.c_float]
-dx_overlay.shutdown_overlay.restype = None
-
-# Initialize and run the overlay
-hwnd = 0  # Use a valid HWND from a created window in a real scenario
-
-if dx_overlay.initialize_overlay(hwnd):
-    print("Overlay initialized.")
-
-    try:
-        # Render loop
-        while True:
-            # Render with a cyan color
-            dx_overlay.render_frame(0.0, 0.5, 0.5, 1.0)
-            time.sleep(1 / 60)  # Approx 60 FPS
-
-    except KeyboardInterrupt:
-        print("Exiting rendering loop.")
-    finally:
-        dx_overlay.shutdown_overlay()
-else:
-    print("Failed to initialize overlay.")
+overlay = OverlayRenderer()
+overlay.Initialize(window_handle)   # Pass the overlay window handle if needed
 ```
-
-## Testing
-1. Build the DLL project in Visual Studio
-2. Locate the compiled `.dll` file in the Debug or Release folder
-3. Run the Python script in the same directory as the DLL
-4. Verify that the overlay initializes and renders correctly
-
-## Troubleshooting
-- Ensure all DirectX dependencies are properly linked
-- Check that the DLL is in the same directory as your Python script
-- Verify that you're using a valid window handle (HWND)
-- Monitor the console for initialization errors
-- If the overlay doesn't appear, check your window Z-order and transparency settings
 
 ## Contributing
 Feel free to submit issues and enhancement requests!
@@ -185,4 +148,4 @@ Feel free to submit issues and enhancement requests!
 [Your chosen license]
 
 ---
-Created with ❤️ using DirectX 11 and Python
+Created with ❤️ using SharpDX and C#
